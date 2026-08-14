@@ -126,7 +126,7 @@ backend/
       assets/        Anton-Regular.ttf (SIL OFL)
     gallery/         GET /gallery
   layer/             Pillow layer build (no Docker required)
-  tests/             72 pytest tests
+  tests/             80 pytest tests
 frontend/
   src/
     components/      UploadZone, StageLoader, MemeReveal, Gallery, Lightbox…

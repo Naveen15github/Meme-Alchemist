@@ -111,7 +111,7 @@ Bedrock automatically — no redeploy, no config change.
 
 I wrote tests for exactly this. The suite simulates a Bedrock throttle, a
 Rekognition outage, and both failing simultaneously, and asserts each time that
-a valid, downloadable meme still comes back. That's 107 tests in total — 72
+a valid, downloadable meme still comes back. That's 115 tests in total — 80
 backend, 35 frontend.
 
 The other thing I'd repeat: a **preflight script** that runs before Terraform
