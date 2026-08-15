@@ -1,5 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ApiError, fetchGallery, generateMeme, requestUploadUrl, uploadToS3, validateFile } from '../api.js'
+import {
+  ApiError,
+  deleteMeme,
+  fetchGallery,
+  forgetDeleteToken,
+  generateMeme,
+  getDeleteToken,
+  ownedMemeIds,
+  rememberDeleteToken,
+  requestUploadUrl,
+  uploadToS3,
+  validateFile,
+} from '../api.js'
 
 function makeFile({ type = 'image/jpeg', size = 1024, name = 'photo.jpg' } = {}) {
   const file = new File(['x'], name, { type })
@@ -112,5 +124,86 @@ describe('fetchGallery', () => {
   it('throws on a failed request', async () => {
     fetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) })
     await expect(fetchGallery()).rejects.toBeInstanceOf(ApiError)
+  })
+})
+
+describe('delete tokens', () => {
+  it('remembers and returns a token', () => {
+    rememberDeleteToken('abc', 'tok-1')
+    expect(getDeleteToken('abc')).toBe('tok-1')
+  })
+
+  it('returns null for an unknown meme', () => {
+    expect(getDeleteToken('nope')).toBeNull()
+  })
+
+  it('ignores empty ids or tokens', () => {
+    rememberDeleteToken('', 'tok')
+    rememberDeleteToken('id', '')
+    expect(ownedMemeIds().size).toBe(0)
+  })
+
+  it('tracks every owned id', () => {
+    rememberDeleteToken('a', 't1')
+    rememberDeleteToken('b', 't2')
+    expect(ownedMemeIds()).toEqual(new Set(['a', 'b']))
+  })
+
+  it('forgets a token', () => {
+    rememberDeleteToken('a', 't1')
+    forgetDeleteToken('a')
+    expect(getDeleteToken('a')).toBeNull()
+  })
+
+  it('survives corrupted storage', () => {
+    localStorage.setItem('meme-alchemist:delete-tokens', 'not json{')
+    expect(ownedMemeIds().size).toBe(0)
+    expect(getDeleteToken('a')).toBeNull()
+  })
+})
+
+describe('deleteMeme', () => {
+  it('sends the token in the header', async () => {
+    rememberDeleteToken('abc', 'tok-1')
+    fetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'abc', deleted: true }) })
+
+    await deleteMeme('abc')
+
+    const [url, options] = fetch.mock.calls[0]
+    expect(url).toMatch(/\/memes\/abc$/)
+    expect(options.method).toBe('DELETE')
+    expect(options.headers['x-delete-token']).toBe('tok-1')
+  })
+
+  it('forgets the token after a successful delete', async () => {
+    rememberDeleteToken('abc', 'tok-1')
+    fetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'abc', deleted: true }) })
+
+    await deleteMeme('abc')
+    expect(getDeleteToken('abc')).toBeNull()
+  })
+
+  it('refuses without a token, without calling the API', async () => {
+    await expect(deleteMeme('abc')).rejects.toThrow(/only delete memes you created/i)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('treats 404 as success so the UI converges', async () => {
+    rememberDeleteToken('abc', 'tok-1')
+    fetch.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) })
+
+    await expect(deleteMeme('abc')).resolves.toMatchObject({ deleted: true })
+    expect(getDeleteToken('abc')).toBeNull()
+  })
+
+  it('keeps the token when the server rejects it', async () => {
+    rememberDeleteToken('abc', 'tok-1')
+    fetch.mockResolvedValue({
+      ok: false, status: 403,
+      json: async () => ({ error: { code: 'FORBIDDEN', message: 'Not yours.' } }),
+    })
+
+    await expect(deleteMeme('abc')).rejects.toThrow('Not yours.')
+    expect(getDeleteToken('abc')).toBe('tok-1')
   })
 })

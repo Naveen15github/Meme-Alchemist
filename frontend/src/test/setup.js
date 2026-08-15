@@ -28,6 +28,9 @@ globalThis.IntersectionObserver ||= class {
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn())
+  // Delete tokens live in localStorage; leaking them between tests would make
+  // ownership assertions depend on test order.
+  localStorage.clear()
 })
 
 afterEach(() => {

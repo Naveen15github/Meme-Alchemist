@@ -113,3 +113,27 @@ resource "aws_lambda_function" "gallery" {
 
   depends_on = [aws_cloudwatch_log_group.gallery]
 }
+
+# --- delete -----------------------------------------------------------------
+resource "aws_cloudwatch_log_group" "delete" {
+  name              = "/aws/lambda/${local.name}-delete"
+  retention_in_days = var.log_retention_days
+}
+
+resource "aws_lambda_function" "delete" {
+  function_name    = "${local.name}-delete"
+  role             = aws_iam_role.delete.arn
+  handler          = "delete.handler.handler"
+  runtime          = "python3.12"
+  architectures    = ["x86_64"]
+  filename         = data.archive_file.src.output_path
+  source_code_hash = data.archive_file.src.output_base64sha256
+  timeout          = 10
+  memory_size      = 256
+
+  environment {
+    variables = local.common_env
+  }
+
+  depends_on = [aws_cloudwatch_log_group.delete]
+}

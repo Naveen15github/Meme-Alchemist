@@ -235,3 +235,119 @@ describe('error states', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
   })
 })
+
+describe('deleting memes', () => {
+  const OTHERS = { ...MEME, id: 'someone-else', caption: 'NOT YOURS / AT ALL' }
+
+  function ownMeme(id, token = 'tok-1') {
+    localStorage.setItem('meme-alchemist:delete-tokens', JSON.stringify({ [id]: token }))
+  }
+
+  it('shows no delete button on memes this browser did not create', async () => {
+    mockApi({ gallery: [OTHERS] })
+    await renderApp()
+
+    await screen.findByRole('button', { name: /view meme/i })
+    expect(screen.queryByRole('button', { name: /delete meme/i })).not.toBeInTheDocument()
+  })
+
+  it('shows a delete button on memes this browser created', async () => {
+    ownMeme(MEME.id)
+    mockApi({ gallery: [MEME] })
+    await renderApp()
+
+    expect(await screen.findByRole('button', { name: /delete meme/i })).toBeInTheDocument()
+  })
+
+  it('asks for confirmation before deleting', async () => {
+    ownMeme(MEME.id)
+    mockApi({ gallery: [MEME] })
+    await renderApp()
+
+    await userEvent.click(await screen.findByRole('button', { name: /delete meme/i }))
+
+    expect(await screen.findByRole('alertdialog', { name: /confirm deleting/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument()
+  })
+
+  it('cancelling keeps the meme and calls nothing', async () => {
+    ownMeme(MEME.id)
+    mockApi({ gallery: [MEME] })
+    await renderApp()
+
+    await userEvent.click(await screen.findByRole('button', { name: /delete meme/i }))
+    fetch.mockClear()
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(screen.getByRole('button', { name: /view meme/i })).toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('removes the meme from the gallery on confirm', async () => {
+    ownMeme(MEME.id)
+    mockApi({ gallery: [MEME] })
+    await renderApp()
+
+    await userEvent.click(await screen.findByRole('button', { name: /delete meme/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /view meme/i })).not.toBeInTheDocument()
+    })
+  })
+
+  it('sends DELETE with the stored token', async () => {
+    ownMeme(MEME.id, 'secret-token')
+    mockApi({ gallery: [MEME] })
+    await renderApp()
+
+    await userEvent.click(await screen.findByRole('button', { name: /delete meme/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+
+    await waitFor(() => {
+      const call = fetch.mock.calls.find(([, opts]) => opts?.method === 'DELETE')
+      expect(call).toBeTruthy()
+      expect(call[1].headers['x-delete-token']).toBe('secret-token')
+    })
+  })
+
+  it('restores the meme and shows an error if the delete fails', async () => {
+    ownMeme(MEME.id)
+    mockApi({ gallery: [MEME] })
+    render(<App />)
+    await waitFor(() => expect(screen.queryByText(/loading…/i)).not.toBeInTheDocument())
+
+    fetch.mockImplementation((url, options) => {
+      if (options?.method === 'DELETE') {
+        return Promise.resolve({
+          ok: false, status: 500,
+          json: async () => ({ error: { code: 'INTERNAL_ERROR', message: 'Could not delete that meme.' } }),
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ items: [MEME] }) })
+    })
+
+    await userEvent.click(await screen.findByRole('button', { name: /delete meme/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not delete/i)
+    expect(screen.getByRole('button', { name: /view meme/i })).toBeInTheDocument()
+  })
+
+  it('stores the delete token returned by a fresh generate', async () => {
+    mockApi({
+      generate: {
+        ok: true, status: 200,
+        json: async () => ({ ...MEME, deleteToken: 'fresh-token' }),
+      },
+    })
+    await renderApp()
+    await dropFile(makeFile())
+
+    await screen.findByRole('region', { name: /your finished meme/i })
+
+    const stored = JSON.parse(localStorage.getItem('meme-alchemist:delete-tokens'))
+    expect(stored[MEME.id]).toBe('fresh-token')
+  })
+})

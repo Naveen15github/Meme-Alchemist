@@ -7,8 +7,8 @@ from . import obs
 # Lambda responses correct even when invoked directly (e.g. smoke tests).
 _CORS = {
     "access-control-allow-origin": "*",
-    "access-control-allow-headers": "content-type",
-    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "content-type,x-delete-token",
+    "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
 }
 
 

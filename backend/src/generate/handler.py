@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import boto3
 from botocore.exceptions import ClientError
 
-from common import config, obs
+from common import config, obs, tokens
 from common.http import ApiError, fail, ok, parse_json_body
 from generate import captions, memeimg
 
@@ -109,6 +109,10 @@ def handler(event, context):
         image_url = f"{config.PUBLIC_BASE_URL}/{output_key}" if config.PUBLIC_BASE_URL else f"/{output_key}"
         caption_text = " / ".join(part for part in (top, bottom) if part)
 
+        # Minted here and returned to this browser exactly once; only the hash
+        # is stored, so the gallery can never leak the ability to delete.
+        delete_token = tokens.new_token()
+
         record = {
             "id": meme_id,
             "gsiBucket": "meme",  # single partition so the gallery can sort by time
@@ -119,6 +123,7 @@ def handler(event, context):
             "labels": labels[:8],
             "captionSource": source,
             "createdAt": created_at,
+            "deleteTokenHash": tokens.hash_token(delete_token),
         }
         with obs.stage("persist"):
             _persist(record)
@@ -141,6 +146,7 @@ def handler(event, context):
             "labels": labels[:8],
             "captionSource": source,
             "createdAt": created_at,
+            "deleteToken": delete_token,
         })
 
     except ApiError as err:

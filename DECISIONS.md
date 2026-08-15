@@ -189,7 +189,38 @@ disproportionate here.
 
 ---
 
-## 13. Deliberately out of scope
+## 13. Deleting memes uses capability tokens, not identity
+
+The gallery needed a delete button. The API has no accounts, so there is no
+identity to authorise against, and a plain `DELETE /memes/{id}` would let any
+visitor empty the gallery — on a public app being submitted for judging, that is
+a real risk, not a theoretical one.
+
+So `POST /generate` mints a random 192-bit token and returns it to that browser
+**once**. Only its SHA-256 hash is stored on the record, and `GET /gallery`
+returns an explicit field whitelist that excludes it. Deleting requires
+presenting the token in an `x-delete-token` header; comparison is constant-time.
+
+Consequences, stated plainly:
+
+- "Your memes" means "memes this browser created". Clear the browser's
+  localStorage and you lose the ability to delete them through the UI.
+- The database contains nothing that grants deletion, so a leaked table dump
+  does not let anyone delete anything.
+- Memes created before this feature have no hash and cannot be deleted via the
+  API by anyone, including their creator. `scripts/admin-memes.sh` is the
+  owner-side escape hatch — it uses AWS credentials directly rather than the
+  public API.
+
+Deletion order is DynamoDB record first, S3 object second. If the object delete
+fails, the result is an orphaned file rather than a gallery tile pointing at a
+missing image — the harmless direction to fail in. The `delete` Lambda has its
+own role limited to `GetItem`/`DeleteItem` on the table and `DeleteObject` under
+`memes/`.
+
+---
+
+## 14. Deliberately out of scope
 
 No auth, no user accounts, no admin panel, no rate limiting beyond the API
 Gateway stage throttle (10 req/s, burst 20), no custom domain. None are needed
@@ -200,7 +231,7 @@ the 7-day upload lifecycle rule are what bound the blast radius.
 
 ---
 
-## 14. Article length
+## 15. Article length
 
 `ARTICLE_DRAFT.md` is **1,471 words** of prose in its body (1,644 including
 fenced code blocks), comfortably clearing the 500-word minimum. Counted with:
@@ -216,7 +247,7 @@ Link to the app.
 
 ---
 
-## 15. Cost posture
+## 16. Cost posture
 
 Log retention is 14 days, uploads expire after 7 days, CloudFront uses
 `PriceClass_100`, DynamoDB is on-demand, and every Lambda is small and

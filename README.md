@@ -104,7 +104,7 @@ flowchart TD
 | Service | Role in this app |
 |---|---|
 | **Amazon S3** | Three private buckets: raw uploads (auto-expiring after 7 days), finished memes, and the built React app. |
-| **AWS Lambda** | Three Python 3.12 functions — `presign` issues upload URLs, `generate` runs the whole meme pipeline, `gallery` lists recent memes. |
+| **AWS Lambda** | Four Python 3.12 functions — `presign` issues upload URLs, `generate` runs the whole meme pipeline, `gallery` lists recent memes, `delete` removes one. |
 | **Amazon API Gateway** | HTTP API exposing the three routes, with CORS and a 10 req/s throttle so a stray script can't run up a bill. |
 | **Amazon Rekognition** | `DetectLabels` identifies what's actually in the photo — this is what makes the joke about *your* image. |
 | **Amazon Bedrock (Nova Lite)** | Turns those labels into a two-line meme caption, with retries and backoff. |
@@ -120,20 +120,22 @@ flowchart TD
 ```
 backend/
   src/
-    common/          config, structured logging, HTTP helpers
+    common/          config, structured logging, HTTP helpers, delete tokens
     presign/         POST /uploads
     generate/        POST /generate — pipeline, captions, Pillow rendering
       assets/        Anton-Regular.ttf (SIL OFL)
     gallery/         GET /gallery
+    delete/          DELETE /memes/{id} — token-checked removal
   layer/             Pillow layer build (no Docker required)
-  tests/             80 pytest tests
+  tests/             100 pytest tests
 frontend/
   src/
     components/      UploadZone, StageLoader, MemeReveal, Gallery, Lightbox…
-    api.js           the three API calls + client-side validation
-    test/            35 Vitest / Testing Library tests
+    api.js           the four API calls + client-side validation
+    test/            54 Vitest / Testing Library tests
 infra/               Terraform: S3, Lambda, API Gateway, DynamoDB, CloudFront, IAM
-scripts/             preflight-check, bootstrap, deploy, e2e-test, test-all, destroy
+scripts/             preflight-check, bootstrap, deploy, e2e-test, test-all,
+                     admin-memes, destroy
 ```
 
 ---
@@ -193,7 +195,7 @@ Runs backend pytest (with moto mocking S3, DynamoDB and Rekognition), frontend
 Vitest, `terraform fmt -check`, `terraform validate`, and a `terraform plan`
 sanity check.
 
-**115 tests total — 80 backend, 35 frontend.**
+**154 tests total — 100 backend, 54 frontend.**
 
 The backend suite covers the happy path, invalid and oversized file rejection,
 corrupt images, and — most importantly — the fallback path: it simulates a

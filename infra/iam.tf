@@ -123,3 +123,35 @@ resource "aws_iam_role_policy_attachment" "gallery_logs" {
   role       = aws_iam_role.gallery.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
+
+# --- delete -----------------------------------------------------------------
+resource "aws_iam_role" "delete" {
+  name               = "${local.name}-delete-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+data "aws_iam_policy_document" "delete" {
+  # GetItem is needed to read the stored token hash before authorising.
+  statement {
+    sid       = "ReadAndRemoveRecord"
+    actions   = ["dynamodb:GetItem", "dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.memes.arn]
+  }
+
+  statement {
+    sid       = "RemoveMemeObject"
+    actions   = ["s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.processed.arn}/memes/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "delete" {
+  name   = "${local.name}-delete-policy"
+  role   = aws_iam_role.delete.id
+  policy = data.aws_iam_policy_document.delete.json
+}
+
+resource "aws_iam_role_policy_attachment" "delete_logs" {
+  role       = aws_iam_role.delete.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}

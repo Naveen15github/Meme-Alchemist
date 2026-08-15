@@ -29,9 +29,10 @@ All responses are `application/json`. Errors share one shape:
 Three calls, in order:
 
 ```
-POST /uploads   ──▶  presigned S3 URL
-PUT  <that URL> ──▶  bytes go straight to S3 (not through the API)
-POST /generate  ──▶  the finished meme
+POST /uploads       ──▶  presigned S3 URL
+PUT  <that URL>     ──▶  bytes go straight to S3 (not through the API)
+POST /generate      ──▶  the finished meme + a one-time delete token
+DELETE /memes/{id}  ──▶  remove a meme, if you hold its token
 ```
 
 ---
@@ -125,6 +126,7 @@ Typically completes in **2–5 seconds**.
 | `imageUrl` | Public CloudFront URL, cached immutably |
 | `labels` | Up to 8 Rekognition labels, highest confidence first. May be `[]` |
 | `captionSource` | `"bedrock"` if the model wrote it, `"fallback"` if the local library did |
+| `deleteToken` | Returned **once**, never again. Store it to enable `DELETE /memes/{id}` |
 
 ### `captionSource` and the reliability guarantee
 
@@ -147,6 +149,66 @@ decodable image.
 | 413 | `FILE_TOO_LARGE` | Object exceeds 8 MB |
 | 415 | `UNSUPPORTED_TYPE` | Stored `Content-Type` is not JPEG or PNG |
 | 500 | `INTERNAL_ERROR` | Undecodable image, or an unexpected failure |
+
+---
+
+## `DELETE /memes/{id}`
+
+Deletes a meme — the DynamoDB record and the S3 object — if you hold its
+delete token.
+
+### Why a token
+
+The API has no accounts, so "may this caller delete this meme?" cannot be
+answered by identity. Instead, `POST /generate` mints a random 192-bit token
+and returns it **once**. Only its SHA-256 hash is stored, so the database never
+contains anything that grants deletion, and `GET /gallery` never exposes it.
+
+This is capability-based authorisation: whoever holds the token may delete,
+which in practice means *the browser that created the meme*. Without it, any
+visitor could empty the gallery.
+
+**Request**
+
+```
+DELETE /memes/3f8a1c22-9d41-4b7e-9f0a-2c5e1b7d8a44
+x-delete-token: EEWSEh01yJNV...
+```
+
+**Response `200`**
+
+```json
+{ "id": "3f8a1c22-9d41-4b7e-9f0a-2c5e1b7d8a44", "deleted": true }
+```
+
+**Errors**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `INVALID_ID` | `id` is not a UUID |
+| 401 | `MISSING_TOKEN` | No `x-delete-token` header |
+| 403 | `FORBIDDEN` | Token does not match this meme |
+| 404 | `NOT_FOUND` | Already deleted, or never existed |
+
+Deletion order is record-then-object: if the S3 delete fails, the gallery entry
+is already gone, leaving an orphaned object rather than a tile pointing at a
+missing image. The failure is logged as `delete_object_failed`.
+
+Note that CloudFront may serve a deleted image from cache until its TTL expires.
+Nothing links to it once the record is gone.
+
+### Memes without a token
+
+Memes created before this endpoint existed — or on another device — have no
+stored hash and therefore cannot be deleted through the API by anyone. Use
+`./scripts/admin-memes.sh`, which acts with your AWS credentials directly:
+
+```bash
+./scripts/admin-memes.sh list                # show every meme and whether it is deletable
+./scripts/admin-memes.sh delete <id> [<id>…] # delete specific memes
+./scripts/admin-memes.sh delete-untokened    # delete every meme with no token
+./scripts/admin-memes.sh delete-all          # empty the gallery
+```
 
 ---
 

@@ -7,7 +7,16 @@ import HowItWorks from './components/HowItWorks.jsx'
 import MemeReveal from './components/MemeReveal.jsx'
 import StageLoader from './components/StageLoader.jsx'
 import UploadZone from './components/UploadZone.jsx'
-import { fetchGallery, generateMeme, requestUploadUrl, uploadToS3, validateFile } from './api.js'
+import {
+  deleteMeme,
+  fetchGallery,
+  generateMeme,
+  ownedMemeIds,
+  rememberDeleteToken,
+  requestUploadUrl,
+  uploadToS3,
+  validateFile,
+} from './api.js'
 
 const VIEW = { IDLE: 'idle', WORKING: 'working', DONE: 'done' }
 
@@ -20,6 +29,7 @@ export default function App() {
 
   const [memes, setMemes] = useState([])
   const [galleryLoading, setGalleryLoading] = useState(true)
+  const [ownedIds, setOwnedIds] = useState(() => ownedMemeIds())
 
   // Tracked so we can revoke the object URL and cancel the stage timer.
   const previewUrlRef = useRef(null)
@@ -48,6 +58,31 @@ export default function App() {
     },
     [],
   )
+
+  const handleDelete = useCallback(async (target) => {
+    // Optimistic: the tile animates out immediately, and comes back if the
+    // request fails.
+    const previous = memes
+    setMemes((current) => current.filter((item) => item.id !== target.id))
+
+    try {
+      await deleteMeme(target.id)
+      setOwnedIds(ownedMemeIds())
+
+      // If the reveal happens to be showing the meme we just deleted, drop
+      // back to the upload zone rather than leaving a dead image on screen.
+      setMeme((current) => {
+        if (current && current.id === target.id) {
+          setView(VIEW.IDLE)
+          return null
+        }
+        return current
+      })
+    } catch (err) {
+      setMemes(previous)
+      setError(err?.message || 'Could not delete that meme.')
+    }
+  }, [memes])
 
   const reset = useCallback(() => {
     if (renderTimerRef.current) clearTimeout(renderTimerRef.current)
@@ -92,6 +127,13 @@ export default function App() {
         renderTimerRef.current = setTimeout(() => setStage(2), 2600)
 
         const result = await generateMeme(key)
+
+        // The delete token comes back exactly once - keep it before anything
+        // else can throw, or this meme becomes undeletable.
+        if (result.deleteToken) {
+          rememberDeleteToken(result.id, result.deleteToken)
+          setOwnedIds(ownedMemeIds())
+        }
 
         clearTimeout(renderTimerRef.current)
         setStage(2)
@@ -189,7 +231,12 @@ export default function App() {
               {galleryLoading ? 'loading…' : `${memes.length} meme${memes.length === 1 ? '' : 's'}`}
             </span>
           </div>
-          <Gallery memes={memes} loading={galleryLoading} />
+          <Gallery
+            memes={memes}
+            loading={galleryLoading}
+            ownedIds={ownedIds}
+            onDelete={handleDelete}
+          />
         </section>
 
         <footer className="mt-20 border-t border-white/5 pt-8 text-center text-xs text-slate-600">

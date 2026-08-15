@@ -73,6 +73,77 @@ export async function generateMeme(key) {
   return response.json()
 }
 
+// --- Delete tokens ---------------------------------------------------------
+// The API has no accounts, so "your memes" means "memes this browser made".
+// generateMeme returns a one-time token which we keep locally; it is the only
+// proof of ownership that exists.
+const TOKEN_KEY = 'meme-alchemist:delete-tokens'
+
+function readTokens() {
+  try {
+    const raw = localStorage.getItem(TOKEN_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    // Private mode, disabled storage, or corrupted JSON - degrade to "owns
+    // nothing" rather than breaking the gallery.
+    return {}
+  }
+}
+
+function writeTokens(tokens) {
+  try {
+    localStorage.setItem(TOKEN_KEY, JSON.stringify(tokens))
+  } catch {
+    /* storage unavailable; deletion just won't persist across reloads */
+  }
+}
+
+export function rememberDeleteToken(id, token) {
+  if (!id || !token) return
+  const tokens = readTokens()
+  tokens[id] = token
+  writeTokens(tokens)
+}
+
+export function getDeleteToken(id) {
+  return readTokens()[id] || null
+}
+
+export function forgetDeleteToken(id) {
+  const tokens = readTokens()
+  if (id in tokens) {
+    delete tokens[id]
+    writeTokens(tokens)
+  }
+}
+
+export function ownedMemeIds() {
+  return new Set(Object.keys(readTokens()))
+}
+
+export async function deleteMeme(id) {
+  const token = getDeleteToken(id)
+  if (!token) {
+    throw new ApiError('You can only delete memes you created on this device.', 'NO_TOKEN', 403)
+  }
+
+  const response = await fetch(`${API_BASE}/memes/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { 'x-delete-token': token },
+  })
+
+  if (response.status === 404) {
+    // Already gone - treat as success so the UI converges either way.
+    forgetDeleteToken(id)
+    return { id, deleted: true }
+  }
+  if (!response.ok) throw await readError(response, 'Could not delete that meme.')
+
+  forgetDeleteToken(id)
+  return response.json()
+}
+
 export async function fetchGallery(limit = 24) {
   const response = await fetch(`${API_BASE}/gallery?limit=${limit}`)
   if (!response.ok) throw await readError(response, 'Could not load the gallery.')

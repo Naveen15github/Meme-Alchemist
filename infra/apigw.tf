@@ -5,8 +5,8 @@ resource "aws_apigatewayv2_api" "api" {
 
   cors_configuration {
     allow_origins  = ["*"]
-    allow_methods  = ["GET", "POST", "OPTIONS"]
-    allow_headers  = ["content-type"]
+    allow_methods  = ["GET", "POST", "DELETE", "OPTIONS"]
+    allow_headers  = ["content-type", "x-delete-token"]
     max_age        = 3600
     expose_headers = ["content-type"]
   }
@@ -43,15 +43,17 @@ resource "aws_apigatewayv2_stage" "default" {
 
 locals {
   routes = {
-    "POST /uploads"  = aws_lambda_function.presign.invoke_arn
-    "POST /generate" = aws_lambda_function.generate.invoke_arn
-    "GET /gallery"   = aws_lambda_function.gallery.invoke_arn
+    "POST /uploads"      = aws_lambda_function.presign.invoke_arn
+    "POST /generate"     = aws_lambda_function.generate.invoke_arn
+    "GET /gallery"       = aws_lambda_function.gallery.invoke_arn
+    "DELETE /memes/{id}" = aws_lambda_function.delete.invoke_arn
   }
 
   route_functions = {
-    "POST /uploads"  = aws_lambda_function.presign.function_name
-    "POST /generate" = aws_lambda_function.generate.function_name
-    "GET /gallery"   = aws_lambda_function.gallery.function_name
+    "POST /uploads"      = aws_lambda_function.presign.function_name
+    "POST /generate"     = aws_lambda_function.generate.function_name
+    "GET /gallery"       = aws_lambda_function.gallery.function_name
+    "DELETE /memes/{id}" = aws_lambda_function.delete.function_name
   }
 }
 
@@ -76,7 +78,9 @@ resource "aws_apigatewayv2_route" "route" {
 resource "aws_lambda_permission" "apigw" {
   for_each = local.route_functions
 
-  statement_id  = "AllowAPIGatewayInvoke-${replace(replace(each.key, " ", "-"), "/", "")}"
+  # statement_id only permits [A-Za-z0-9-_], so strip spaces, slashes and the
+  # braces from path parameters such as "DELETE /memes/{id}".
+  statement_id  = "AllowAPIGatewayInvoke-${replace(each.key, "/[^A-Za-z0-9]/", "-")}"
   action        = "lambda:InvokeFunction"
   function_name = each.value
   principal     = "apigateway.amazonaws.com"
