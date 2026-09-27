@@ -9,7 +9,7 @@
 
 Upload a photo. **Amazon Rekognition** works out what's in it, **Amazon Bedrock
 (Nova)** writes a joke about it, **Pillow** stamps that joke on the image in
-classic meme lettering, and you get a shareable meme back in a few seconds.
+classic meme lettering, and you get a shareable meme back in a few seconds. 
 
 Built for the AWS Weekend Creative Challenge.
 
